@@ -31,7 +31,7 @@
       </div>
 
       <div class="flex flex-wrap items-center gap-2">
-        <button onclick="loadFromSupabase()" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-800 text-slate-200 border border-slate-700 hover:bg-slate-700 transition">
+        <button onclick="loadFromJsonBin()" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-800 text-slate-200 border border-slate-700 hover:bg-slate-700 transition">
           Reload 🔄
         </button>
         <button onclick="openManageModal()" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 text-white hover:bg-indigo-500 transition">
@@ -120,11 +120,11 @@
 
   <script>
     // =========================================================================
-    // 1. SUPABASE CLOUD CONFIG (PASTE YOUR PROJECT URL & ANON KEY BELOW)
+    // 1. JSONBIN CLOUD CONFIG (PASTE YOUR BIN ID & API KEY BELOW)
     // =========================================================================
-    const SUPABASE_URL = "https://pzvvgisgfycudvfeccxm.supabase.co";
-    const SUPABASE_ANON_KEY = "sb_publishable_FGqBMKAYaI_HZjThnVtZ9Q_X9GgPRdo";
-    const SUPABASE_ENDPOINT = `${SUPABASE_URL}/rest/v1/irontrack_state`;
+    const JSONBIN_BIN_ID = "6b07d1f9ab3a7b614481cf19";
+    const JSONBIN_API_KEY = "$2a$10$C3mKcxqHkYPrJT7FeRsk3eo0/L1tUCFLQu/nuxbj.IYm4KkDbNCkS";
+    const JSONBIN_URL = `https://api.jsonbin.io/v3/b/${JSONBIN_BIN_ID}`;
 
     let state = {
       activeDate: new Date().toISOString().split("T")[0],
@@ -157,57 +157,51 @@
     }
 
     // =========================================================================
-    // 2. SUPABASE REST API READ / WRITE (NO LOCAL STORAGE)
+    // 2. JSONBIN REST API READ / WRITE
     // =========================================================================
-    async function loadFromSupabase() {
-      if (SUPABASE_URL.includes("PASTE_YOUR") || SUPABASE_ANON_KEY.includes("PASTE_YOUR")) {
-        setSyncStatus("error", "Add Supabase Keys");
+    async function loadFromJsonBin() {
+      if (JSONBIN_BIN_ID.includes("PASTE_YOUR") || JSONBIN_API_KEY.includes("PASTE_YOUR")) {
+        setSyncStatus("error", "Add JSONBin Keys");
         renderApp();
         return;
       }
 
-      setSyncStatus("syncing", "Loading Supabase...");
+      setSyncStatus("syncing", "Loading JSONBin...");
       try {
-        const res = await fetch(`${SUPABASE_ENDPOINT}?id=eq.1&select=data`, {
+        const res = await fetch(`${JSONBIN_URL}/latest`, {
           headers: {
-            "apikey": SUPABASE_ANON_KEY,
-            "Authorization": `Bearer ${SUPABASE_ANON_KEY}`
+            "X-Master-Key": JSONBIN_API_KEY
           }
         });
         if (!res.ok) throw new Error("HTTP " + res.status);
-        const rows = await res.json();
-        if (Array.isArray(rows) && rows.length > 0 && rows[0].data) {
-          state = rows[0].data;
-          setSyncStatus("synced", "Supabase Synced");
-        } else {
-          // Row 1 doesn't exist yet — seed it automatically
-          await saveToSupabase();
+        const payload = await res.json();
+        if (payload && payload.record) {
+          state = payload.record;
+          setSyncStatus("synced", "JSONBin Synced");
         }
       } catch (err) {
         console.error(err);
-        setSyncStatus("error", "Supabase Error");
+        setSyncStatus("error", "JSONBin Error");
       }
       renderApp();
     }
 
-    async function saveToSupabase() {
+    async function saveToJsonBin() {
       renderApp();
-      if (SUPABASE_URL.includes("PASTE_YOUR") || SUPABASE_ANON_KEY.includes("PASTE_YOUR")) return;
+      if (JSONBIN_BIN_ID.includes("PASTE_YOUR") || JSONBIN_API_KEY.includes("PASTE_YOUR")) return;
 
       setSyncStatus("syncing", "Saving...");
       try {
-        const res = await fetch(`${SUPABASE_ENDPOINT}?on_conflict=id`, {
-          method: "POST",
+        const res = await fetch(JSONBIN_URL, {
+          method: "PUT",
           headers: {
             "Content-Type": "application/json",
-            "apikey": SUPABASE_ANON_KEY,
-            "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
-            "Prefer": "resolution=merge-duplicates,return=minimal"
+            "X-Master-Key": JSONBIN_API_KEY
           },
-          body: JSON.stringify({ id: 1, data: state })
+          body: JSON.stringify(state)
         });
         if (!res.ok) throw new Error("HTTP " + res.status);
-        setSyncStatus("synced", "Supabase Synced");
+        setSyncStatus("synced", "JSONBin Synced");
       } catch (err) {
         console.error(err);
         setSyncStatus("error", "Save Failed");
@@ -241,7 +235,7 @@
 
     function toggleTask(idx) {
       state.tasks[idx].done = !state.tasks[idx].done;
-      saveToSupabase();
+      saveToJsonBin();
     }
 
     function drawRandomPunishment(reasonLabel) {
@@ -259,12 +253,12 @@
 
     function triggerManualShuffle() {
       drawRandomPunishment("Manual Draw");
-      saveToSupabase();
+      saveToJsonBin();
     }
 
     function clearPunishment(idx) {
       state.activePunishments.splice(idx, 1);
-      saveToSupabase();
+      saveToJsonBin();
     }
 
     function endDayAndRollover() {
@@ -295,7 +289,7 @@
       state.tasks.forEach(t => t.done = false);
       state.activeDate = new Date().toISOString().split("T")[0];
 
-      saveToSupabase();
+      saveToJsonBin();
     }
 
     // =========================================================================
@@ -457,7 +451,7 @@
     function saveManageChanges() {
       state = draftState;
       closeManageModal();
-      saveToSupabase();
+      saveToJsonBin();
     }
 
     function escapeHtml(str) {
@@ -468,7 +462,7 @@
         .replace(/"/g, "&quot;");
     }
 
-    loadFromSupabase();
+    loadFromJsonBin();
   </script>
 </body>
 </html>
