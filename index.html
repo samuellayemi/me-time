@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IronTrack — Personal Discipline & Debt Ledger</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #f8fafc; margin: 0; }
+    .card { background: #1e293b; border: 1px solid #334155; border-radius: 1rem; padding: 1.25rem; }
+    .sync-dot { display: inline-block; width: 8px; height: 8px; border-radius: 9999px; }
+  </style>
+</head>
+<body class="min-h-screen pb-14">
+
+  <!-- Header -->
+  <header class="bg-slate-900/90 backdrop-blur border-b border-slate-800 sticky top-0 z-30">
+    <div class="max-w-4xl mx-auto px-4 py-3.5 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl bg-rose-600 text-white font-black flex items-center justify-center text-lg shadow">I</div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="font-bold text-lg tracking-tight text-white">IronTrack</h1>
+            <span class="inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+              <span id="syncDot" class="sync-dot bg-amber-400"></span>
+              <span id="syncText">Connecting...</span>
+            </span>
+          </div>
+          <p id="dateLabel" class="text-xs text-slate-400"></p>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2">
+        <button onclick="loadFromSupabase()" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-800 text-slate-200 border border-slate-700 hover:bg-slate-700 transition">
+          Reload 🔄
+        </button>
+        <button onclick="openManageModal()" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 text-white hover:bg-indigo-500 transition">
+          Tasks & Pool ⚙️
+        </button>
+        <button onclick="endDayAndRollover()" class="px-3 py-1.5 text-xs font-semibold rounded-lg bg-rose-600 text-white hover:bg-rose-500 transition">
+          End Day & Rollover ⏭️
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="max-w-4xl mx-auto px-4 pt-6 space-y-6">
+
+    <!-- Score & Debt Overview -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div class="card flex flex-col justify-between">
+        <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Live Discipline Score</span>
+        <div class="mt-2 flex items-baseline gap-2">
+          <span id="scorePct" class="text-4xl font-black text-white">0%</span>
+          <span id="rawPointsLabel" class="text-xs text-slate-400">(0 / 0 pts)</span>
+        </div>
+        <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden mt-3">
+          <div id="scoreBar" class="h-full bg-emerald-500 transition-all duration-300" style="width: 0%"></div>
+        </div>
+      </div>
+
+      <div class="card flex flex-col justify-between">
+        <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Carried Debt Balance</span>
+        <div class="mt-2 flex items-baseline gap-2">
+          <span id="debtValue" class="text-4xl font-black text-amber-400">0</span>
+          <span class="text-xs text-slate-400">pts carried over</span>
+        </div>
+        <p class="text-xs text-slate-400 mt-3">Negative end-of-day points carry forward until paid off.</p>
+      </div>
+
+      <div class="card flex flex-col justify-between">
+        <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Tier Weights Key</span>
+        <div class="mt-2 space-y-1 text-xs">
+          <div class="flex justify-between"><span class="text-emerald-400 font-semibold">● Normal</span><span class="text-slate-300">+1 / Miss: 0</span></div>
+          <div class="flex justify-between"><span class="text-amber-400 font-semibold">● Special</span><span class="text-slate-300">+1 / Miss: -1</span></div>
+          <div class="flex justify-between"><span class="text-rose-400 font-semibold">● Tough</span><span class="text-slate-300">+1 / Miss: -2</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Active Punishments Ledger -->
+    <div id="punishmentSection" class="card border-rose-500/40 bg-rose-950/20 space-y-3 hidden">
+      <div class="flex items-center justify-between">
+        <h2 class="text-sm font-bold uppercase tracking-wider text-rose-400">⚠️ Active Discipline Debt (Must Clear)</h2>
+        <button onclick="triggerManualShuffle()" class="text-xs px-2.5 py-1 rounded bg-rose-900/60 text-rose-200 border border-rose-700 hover:bg-rose-800">
+          Shuffle New Penalty 🎲
+        </button>
+      </div>
+      <div id="activePunishmentList" class="space-y-2"></div>
+    </div>
+
+    <!-- Daily Tasks List -->
+    <div class="card space-y-4">
+      <div class="flex items-center justify-between">
+        <h2 class="text-base font-bold text-white">Today's Execution Board</h2>
+        <button onclick="triggerManualShuffle()" class="text-xs text-slate-400 hover:text-rose-400 transition">
+          + Draw Random Punishment
+        </button>
+      </div>
+      <div id="tasksList" class="space-y-2.5"></div>
+    </div>
+
+  </main>
+
+  <!-- Manage Tasks & Punishment Pool Modal -->
+  <div id="manageModal" class="fixed inset-0 bg-black/75 hidden items-center justify-center p-4 z-50">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+      <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
+        <h2 class="font-bold text-lg text-white">Configure Tasks & Punishment Pool</h2>
+        <button onclick="closeManageModal()" class="text-slate-400 hover:text-white text-xl font-bold">&times;</button>
+      </div>
+      <div id="manageModalBody" class="p-6 overflow-y-auto space-y-6 text-sm"></div>
+      <div class="px-6 py-4 border-t border-slate-800 bg-slate-950 flex justify-end gap-2">
+        <button onclick="closeManageModal()" class="px-4 py-2 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800">Cancel</button>
+        <button onclick="saveManageChanges()" class="px-4 py-2 rounded-lg bg-indigo-600 text-white font-semibold hover:bg-indigo-500">Save to Cloud</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // =========================================================================
+    // 1. SUPABASE CLOUD CONFIG (PASTE YOUR PROJECT URL & ANON KEY BELOW)
+    // =========================================================================
+    const SUPABASE_URL = "https://pzvvgisgfycudvfeccxm.supabase.co";
+    const SUPABASE_ANON_KEY = "sb_publishable_FGqBMKAYaI_HZjThnVtZ9Q_X9GgPRdo";
+    const SUPABASE_ENDPOINT = `${SUPABASE_URL}/rest/v1/irontrack_state`;
+
+    let state = {
+      activeDate: new Date().toISOString().split("T")[0],
+      passingThreshold: 60,
+      carriedDebt: 0,
+      punishmentPool: [
+        "3-day water fast",
+        "100 pushups + 5-minute plank",
+        "Zero screens/entertainment for 24 hours"
+      ],
+      activePunishments: [],
+      tasks: []
+    };
+
+    const TIER_META = {
+      normal:  { label: "Normal",  reward: 1, penalty: 0, badge: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30", border: "border-l-4 border-l-emerald-500" },
+      special: { label: "Special", reward: 1, penalty: 1, badge: "bg-amber-500/15 text-amber-400 border-amber-500/30",       border: "border-l-4 border-l-amber-400" },
+      tough:   { label: "Tough",   reward: 1, penalty: 2, badge: "bg-rose-500/15 text-rose-400 border-rose-500/30",          border: "border-l-4 border-l-rose-500" }
+    };
+
+    function setSyncStatus(status, label) {
+      const dot = document.getElementById("syncDot");
+      const text = document.getElementById("syncText");
+      text.textContent = label;
+      dot.className = "sync-dot " + (
+        status === "synced" ? "bg-emerald-400" :
+        status === "syncing" ? "bg-blue-400 animate-pulse" :
+        "bg-rose-500"
+      );
+    }
+
+    // =========================================================================
+    // 2. SUPABASE REST API READ / WRITE (NO LOCAL STORAGE)
+    // =========================================================================
+    async function loadFromSupabase() {
+      if (SUPABASE_URL.includes("PASTE_YOUR") || SUPABASE_ANON_KEY.includes("PASTE_YOUR")) {
+        setSyncStatus("error", "Add Supabase Keys");
+        renderApp();
+        return;
+      }
+
+      setSyncStatus("syncing", "Loading Supabase...");
+      try {
+        const res = await fetch(`${SUPABASE_ENDPOINT}?id=eq.1&select=data`, {
+          headers: {
+            "apikey": SUPABASE_ANON_KEY,
+            "Authorization": `Bearer ${SUPABASE_ANON_KEY}`
+          }
+        });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const rows = await res.json();
+        if (Array.isArray(rows) && rows.length > 0 && rows[0].data) {
+          state = rows[0].data;
+          setSyncStatus("synced", "Supabase Synced");
+        } else {
+          // Row 1 doesn't exist yet — seed it automatically
+          await saveToSupabase();
+        }
+      } catch (err) {
+        console.error(err);
+        setSyncStatus("error", "Supabase Error");
+      }
+      renderApp();
+    }
+
+    async function saveToSupabase() {
+      renderApp();
+      if (SUPABASE_URL.includes("PASTE_YOUR") || SUPABASE_ANON_KEY.includes("PASTE_YOUR")) return;
+
+      setSyncStatus("syncing", "Saving...");
+      try {
+        const res = await fetch(`${SUPABASE_ENDPOINT}?on_conflict=id`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "apikey": SUPABASE_ANON_KEY,
+            "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+            "Prefer": "resolution=merge-duplicates,return=minimal"
+          },
+          body: JSON.stringify({ id: 1, data: state })
+        });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        setSyncStatus("synced", "Supabase Synced");
+      } catch (err) {
+        console.error(err);
+        setSyncStatus("error", "Save Failed");
+      }
+    }
+
+    // =========================================================================
+    // 3. SCORE, DEBT & PUNISHMENT SHUFFLER MATH
+    // =========================================================================
+    function computeMetrics() {
+      const tasks = state.tasks || [];
+      const maxPossible = tasks.length;
+      let earned = 0;
+      let uncompletedPenalty = 0;
+
+      tasks.forEach(t => {
+        const meta = TIER_META[t.tier] || TIER_META.normal;
+        if (t.done) {
+          earned += meta.reward;
+        } else {
+          uncompletedPenalty += meta.penalty;
+        }
+      });
+
+      const liveNet = earned + (state.carriedDebt || 0);
+      const endOfDayNet = earned - uncompletedPenalty + (state.carriedDebt || 0);
+      const pct = maxPossible > 0 ? Math.round((liveNet / maxPossible) * 100) : 0;
+
+      return { maxPossible, earned, uncompletedPenalty, liveNet, endOfDayNet, pct };
+    }
+
+    function toggleTask(idx) {
+      state.tasks[idx].done = !state.tasks[idx].done;
+      saveToSupabase();
+    }
+
+    function drawRandomPunishment(reasonLabel) {
+      const pool = state.punishmentPool || [];
+      if (pool.length === 0) return;
+      const randomText = pool[Math.floor(Math.random() * pool.length)];
+      if (!state.activePunishments) state.activePunishments = [];
+      state.activePunishments.push({
+        id: "p_" + Date.now(),
+        text: randomText,
+        reason: reasonLabel,
+        assignedDate: new Date().toISOString().split("T")[0]
+      });
+    }
+
+    function triggerManualShuffle() {
+      drawRandomPunishment("Manual Draw");
+      saveToSupabase();
+    }
+
+    function clearPunishment(idx) {
+      state.activePunishments.splice(idx, 1);
+      saveToSupabase();
+    }
+
+    function endDayAndRollover() {
+      const { maxPossible, earned, uncompletedPenalty, endOfDayNet } = computeMetrics();
+      const endPct = maxPossible > 0 ? Math.round((endOfDayNet / maxPossible) * 100) : 0;
+
+      const summary = [
+        `End-of-Day Audit:`,
+        `• Completed: +${earned} pts`,
+        `• Missed Special/Tough Penalties: -${uncompletedPenalty} pts`,
+        `• Previous Debt: ${state.carriedDebt || 0} pts`,
+        `• Final Net Score: ${endOfDayNet} pts (${endPct}%)`,
+        ``,
+        endOfDayNet < 0 ? `⚠️ Negative balance (${endOfDayNet} pts) will carry over as tomorrow's debt.` : `✅ Debt cleared! Tomorrow starts at 0 debt.`,
+        endPct < (state.passingThreshold || 60) ? `🎲 Score below ${state.passingThreshold || 60}% — a random punishment will be assigned.` : ``,
+        ``,
+        `Proceed to close today and reset checkboxes for tomorrow?`
+      ].filter(Boolean).join("\n");
+
+      if (!confirm(summary)) return;
+
+      state.carriedDebt = endOfDayNet < 0 ? endOfDayNet : 0;
+
+      if (endPct < (state.passingThreshold || 60)) {
+        drawRandomPunishment(`Failed Day (${endPct}%)`);
+      }
+
+      state.tasks.forEach(t => t.done = false);
+      state.activeDate = new Date().toISOString().split("T")[0];
+
+      saveToSupabase();
+    }
+
+    // =========================================================================
+    // 4. UI RENDERING
+    // =========================================================================
+    function renderApp() {
+      document.getElementById("dateLabel").textContent =
+        new Date().toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+
+      const { maxPossible, liveNet, endOfDayNet, pct } = computeMetrics();
+
+      const scorePctEl = document.getElementById("scorePct");
+      scorePctEl.textContent = `${pct}%`;
+      scorePctEl.className = `text-4xl font-black ${pct < 0 ? "text-rose-500" : pct < (state.passingThreshold || 60) ? "text-amber-400" : "text-emerald-400"}`;
+
+      document.getElementById("rawPointsLabel").textContent = `(${liveNet} / ${maxPossible} pts | EOD proj: ${endOfDayNet})`;
+
+      const bar = document.getElementById("scoreBar");
+      const clampedBar = Math.max(0, Math.min(100, pct));
+      bar.style.width = `${clampedBar}%`;
+      bar.className = `h-full transition-all duration-300 ${pct < (state.passingThreshold || 60) ? "bg-rose-500" : "bg-emerald-500"}`;
+
+      const debtEl = document.getElementById("debtValue");
+      debtEl.textContent = state.carriedDebt || 0;
+      debtEl.className = `text-4xl font-black ${(state.carriedDebt || 0) < 0 ? "text-rose-500" : "text-emerald-400"}`;
+
+      const pSection = document.getElementById("punishmentSection");
+      const pList = document.getElementById("activePunishmentList");
+      const activeP = state.activePunishments || [];
+      if (activeP.length > 0) {
+        pSection.classList.remove("hidden");
+        pList.innerHTML = activeP.map((p, idx) => `
+          <div class="flex items-center justify-between gap-3 p-3 rounded-xl bg-slate-900/90 border border-rose-500/30">
+            <div>
+              <div class="text-sm font-bold text-rose-200">${escapeHtml(p.text)}</div>
+              <div class="text-[11px] text-rose-400/80">${escapeHtml(p.reason)} • ${escapeHtml(p.assignedDate)}</div>
+            </div>
+            <button onclick="clearPunishment(${idx})" class="px-3 py-1.5 rounded-lg bg-emerald-600/20 text-emerald-300 border border-emerald-500/40 text-xs font-semibold hover:bg-emerald-600/30">
+              Mark Served ✓
+            </button>
+          </div>
+        `).join("");
+      } else {
+        pSection.classList.add("hidden");
+      }
+
+      const listEl = document.getElementById("tasksList");
+      if (!state.tasks || state.tasks.length === 0) {
+        listEl.innerHTML = `<p class="text-sm text-slate-400 italic py-4 text-center">No tasks configured yet. Click "Tasks & Pool ⚙️" to add your daily goals.</p>`;
+        return;
+      }
+
+      listEl.innerHTML = state.tasks.map((task, idx) => {
+        const meta = TIER_META[task.tier] || TIER_META.normal;
+        return `
+          <label class="flex items-center justify-between gap-3 p-3.5 rounded-xl bg-slate-900/80 border border-slate-800 ${meta.border} hover:border-slate-700 cursor-pointer transition">
+            <div class="flex items-center gap-3">
+              <input type="checkbox" ${task.done ? "checked" : ""} onchange="toggleTask(${idx})" class="w-4 h-4 accent-indigo-500 rounded cursor-pointer" />
+              <span class="text-sm font-medium ${task.done ? "line-through text-slate-500" : "text-slate-100"}">${escapeHtml(task.text)}</span>
+            </div>
+            <span class="text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${meta.badge} shrink-0">
+              ${meta.label} (${task.done ? "+1" : meta.penalty > 0 ? "-" + meta.penalty : "0"})
+            </span>
+          </label>
+        `;
+      }).join("");
+    }
+
+    // =========================================================================
+    // 5. MANAGE MODAL (TASKS, TIER COLORS & PUNISHMENT POOL)
+    // =========================================================================
+    let draftState = null;
+
+    function openManageModal() {
+      draftState = JSON.parse(JSON.stringify(state));
+      renderManageModal();
+      const modal = document.getElementById("manageModal");
+      modal.classList.remove("hidden");
+      modal.classList.add("flex");
+    }
+
+    function closeManageModal() {
+      const modal = document.getElementById("manageModal");
+      modal.classList.add("hidden");
+      modal.classList.remove("flex");
+    }
+
+    function renderManageModal() {
+      const body = document.getElementById("manageModalBody");
+      body.innerHTML = `
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-bold uppercase text-slate-400 mb-1">Passing Threshold (%)</label>
+            <input type="number" value="${draftState.passingThreshold ?? 60}" onchange="draftState.passingThreshold = Number(this.value)" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white" />
+          </div>
+          <div>
+            <label class="block text-xs font-bold uppercase text-slate-400 mb-1">Manual Debt Adjustment (pts)</label>
+            <input type="number" value="${draftState.carriedDebt ?? 0}" onchange="draftState.carriedDebt = Number(this.value)" class="w-full px-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white" />
+          </div>
+        </div>
+
+        <div class="space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold uppercase text-slate-300">Daily Tasks & Difficulty Tiers</span>
+            <button type="button" onclick="addDraftTask()" class="text-xs font-semibold text-indigo-400 hover:underline">+ Add Task</button>
+          </div>
+          <div class="space-y-2">
+            ${(draftState.tasks || []).map((t, idx) => `
+              <div class="flex items-center gap-2">
+                <input type="text" value="${escapeHtml(t.text)}" onchange="draftState.tasks[${idx}].text = this.value" class="flex-1 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs" />
+                <select onchange="draftState.tasks[${idx}].tier = this.value" class="px-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-xs text-white">
+                  <option value="normal" ${t.tier === "normal" ? "selected" : ""}>Green — Normal (+1 / 0)</option>
+                  <option value="special" ${t.tier === "special" ? "selected" : ""}>Yellow — Special (+1 / -1)</option>
+                  <option value="tough" ${t.tier === "tough" ? "selected" : ""}>Red — Tough (+1 / -2)</option>
+                </select>
+                <button type="button" onclick="removeDraftTask(${idx})" class="px-2 py-1 text-rose-400 hover:bg-rose-950 rounded">✕</button>
+              </div>
+            `).join("")}
+          </div>
+        </div>
+
+        <div class="space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold uppercase text-rose-400">Hardcore Punishment Pool (Shuffled on Fail)</span>
+            <button type="button" onclick="addDraftPunishment()" class="text-xs font-semibold text-rose-400 hover:underline">+ Add Punishment</button>
+          </div>
+          <div class="space-y-2">
+            ${(draftState.punishmentPool || []).map((p, idx) => `
+              <div class="flex items-center gap-2">
+                <input type="text" value="${escapeHtml(p)}" onchange="draftState.punishmentPool[${idx}] = this.value" class="flex-1 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs" />
+                <button type="button" onclick="removeDraftPunishment(${idx})" class="px-2 py-1 text-rose-400 hover:bg-rose-950 rounded">✕</button>
+              </div>
+            `).join("")}
+          </div>
+        </div>
+      `;
+    }
+
+    function addDraftTask() {
+      draftState.tasks.push({ id: "t_" + Date.now(), text: "New task", tier: "normal", done: false });
+      renderManageModal();
+    }
+
+    function removeDraftTask(idx) {
+      draftState.tasks.splice(idx, 1);
+      renderManageModal();
+    }
+
+    function addDraftPunishment() {
+      draftState.punishmentPool.push("New discipline consequence");
+      renderManageModal();
+    }
+
+    function removeDraftPunishment(idx) {
+      draftState.punishmentPool.splice(idx, 1);
+      renderManageModal();
+    }
+
+    function saveManageChanges() {
+      state = draftState;
+      closeManageModal();
+      saveToSupabase();
+    }
+
+    function escapeHtml(str) {
+      return String(str ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    loadFromSupabase();
+  </script>
+</body>
+</html>
