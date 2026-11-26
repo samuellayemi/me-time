@@ -214,6 +214,7 @@
     function computeMetrics() {
       const tasks = state.tasks || [];
       const maxPossible = tasks.length;
+      const debt = Number(state.carriedDebt || 0);
       let earned = 0;
       let uncompletedPenalty = 0;
 
@@ -226,11 +227,12 @@
         }
       });
 
-      const liveNet = earned + (state.carriedDebt || 0);
-      const endOfDayNet = earned - uncompletedPenalty + (state.carriedDebt || 0);
-      const pct = maxPossible > 0 ? Math.round((liveNet / maxPossible) * 100) : 0;
+      const liveNet = earned + debt;
+      const endOfDayNet = earned - uncompletedPenalty + debt;
+      const pct = maxPossible > 0 ? Math.round((liveNet / maxPossible) * 100) : Math.round(liveNet * 100);
+      const endPct = maxPossible > 0 ? Math.round((endOfDayNet / maxPossible) * 100) : Math.round(endOfDayNet * 100);
 
-      return { maxPossible, earned, uncompletedPenalty, liveNet, endOfDayNet, pct };
+      return { maxPossible, earned, uncompletedPenalty, liveNet, endOfDayNet, pct, endPct };
     }
 
     function toggleTask(idx) {
@@ -262,18 +264,19 @@
     }
 
     function endDayAndRollover() {
-      const { maxPossible, earned, uncompletedPenalty, endOfDayNet } = computeMetrics();
-      const endPct = maxPossible > 0 ? Math.round((endOfDayNet / maxPossible) * 100) : 0;
+      const { earned, uncompletedPenalty, endOfDayNet, endPct } = computeMetrics();
+      const threshold = Number(state.passingThreshold ?? 60);
+      const willPunish = endPct < threshold;
 
       const summary = [
         `End-of-Day Audit:`,
         `• Completed: +${earned} pts`,
         `• Missed Special/Tough Penalties: -${uncompletedPenalty} pts`,
-        `• Previous Debt: ${state.carriedDebt || 0} pts`,
+        `• Carried Debt: ${Number(state.carriedDebt || 0)} pts`,
         `• Final Net Score: ${endOfDayNet} pts (${endPct}%)`,
         ``,
-        endOfDayNet < 0 ? `⚠️ Negative balance (${endOfDayNet} pts) will carry over as tomorrow's debt.` : `✅ Debt cleared! Tomorrow starts at 0 debt.`,
-        endPct < (state.passingThreshold || 60) ? `🎲 Score below ${state.passingThreshold || 60}% — a random punishment will be assigned.` : ``,
+        endOfDayNet < 0 ? `⚠️ Negative balance (${endOfDayNet} pts) carries over as tomorrow's debt.` : `✅ Debt cleared! Tomorrow starts at 0 debt.`,
+        willPunish ? `🎲 Score (${endPct}%) is below ${threshold}% — a random punishment will be assigned.` : `✅ Score (${endPct}%) is at or above ${threshold}% — no punishment assigned.`,
         ``,
         `Proceed to close today and reset checkboxes for tomorrow?`
       ].filter(Boolean).join("\n");
@@ -282,8 +285,8 @@
 
       state.carriedDebt = endOfDayNet < 0 ? endOfDayNet : 0;
 
-      if (endPct < (state.passingThreshold || 60)) {
-        drawRandomPunishment(`Failed Day (${endPct}%)`);
+      if (willPunish) {
+        drawRandomPunishment(`Below ${threshold}% (${endPct}%)`);
       }
 
       state.tasks.forEach(t => t.done = false);
@@ -299,22 +302,24 @@
       document.getElementById("dateLabel").textContent =
         new Date().toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
 
+      const threshold = Number(state.passingThreshold ?? 60);
       const { maxPossible, liveNet, endOfDayNet, pct } = computeMetrics();
 
       const scorePctEl = document.getElementById("scorePct");
       scorePctEl.textContent = `${pct}%`;
-      scorePctEl.className = `text-4xl font-black ${pct < 0 ? "text-rose-500" : pct < (state.passingThreshold || 60) ? "text-amber-400" : "text-emerald-400"}`;
+      scorePctEl.className = `text-4xl font-black ${pct < 0 ? "text-rose-500" : pct < threshold ? "text-amber-400" : "text-emerald-400"}`;
 
-      document.getElementById("rawPointsLabel").textContent = `(${liveNet} / ${maxPossible} pts | EOD proj: ${endOfDayNet})`;
+      document.getElementById("rawPointsLabel").textContent = `(${liveNet} / ${maxPossible} pts | EOD: ${endOfDayNet})`;
 
       const bar = document.getElementById("scoreBar");
       const clampedBar = Math.max(0, Math.min(100, pct));
       bar.style.width = `${clampedBar}%`;
-      bar.className = `h-full transition-all duration-300 ${pct < (state.passingThreshold || 60) ? "bg-rose-500" : "bg-emerald-500"}`;
+      bar.className = `h-full transition-all duration-300 ${pct < threshold ? "bg-rose-500" : "bg-emerald-500"}`;
 
+      const debtVal = Number(state.carriedDebt || 0);
       const debtEl = document.getElementById("debtValue");
-      debtEl.textContent = state.carriedDebt || 0;
-      debtEl.className = `text-4xl font-black ${(state.carriedDebt || 0) < 0 ? "text-rose-500" : "text-emerald-400"}`;
+      debtEl.textContent = debtVal;
+      debtEl.className = `text-4xl font-black ${debtVal < 0 ? "text-rose-500" : "text-emerald-400"}`;
 
       const pSection = document.getElementById("punishmentSection");
       const pList = document.getElementById("activePunishmentList");
